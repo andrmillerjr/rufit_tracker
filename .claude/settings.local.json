@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/bin/bash -l -c 'which node && node -v && which npm && npm -v')",
+      "Bash(npm install:*)",
+      "Bash(/opt/homebrew/bin/npm install:*)",
+      "Bash(ls /opt/homebrew/bin/node*)",
+      "Bash(/opt/homebrew/bin/node -v)",
+      "Bash(export PATH=\"/opt/homebrew/bin:$PATH\")",
+      "Bash(export PATH=\"/opt/homebrew/bin:/usr/bin:/bin:$PATH\")"
+    ]
+  }
+}

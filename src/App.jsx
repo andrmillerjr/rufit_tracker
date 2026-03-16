@@ -1,41 +1,40 @@
-import React, { useState } from 'react';
-import { Plus, TrendingUp, LogOut, Users, BarChart3, Apple } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, TrendingUp, LogOut, BarChart3, Apple } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
+async function apiFetch(path, options = {}) {
+  const token = localStorage.getItem('authToken');
+  const res = await fetch(path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export default function FitnessTracker() {
-  // ========== INITIAL STATE ==========
+  // ========== STATE ==========
   const [currentUser, setCurrentUser] = useState(null);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [loading, setLoading] = useState(true);
 
-  const [userProfiles, setUserProfiles] = useState(() => {
-    const saved = localStorage.getItem('userProfiles');
-    return saved ? JSON.parse(saved) : { 1: { age: null, height: null, weight: null, waist: null } };
-  });
+  const [userProfile, setUserProfile] = useState(null);
   const [profileFormData, setProfileFormData] = useState({ age: '', height: '', weight: '', waist: '' });
 
-  const [users] = useState([
-    { id: 1, email: 'user@fittrack.ru', password: 'user123', name: 'Иван' }
-  ]);
-  const [userPlans, setUserPlans] = useState({
-    1: {
-      food: [
-        { id: 1, name: 'Овсяная каша с ягодами', description: 'Овсяные хлопья с молоком, свежие ягоды (клубника, черника), мёд', day: 'День 1' },
-        { id: 2, name: 'Грилированная курица', description: 'Филе куриной грудки (150г), припущенное на гриле, с овощами на пару', day: 'День 1' },
-        { id: 3, name: 'Греческий йогурт с медом', description: 'Натуральный греческий йогурт (200г) без наполнителей, 1 столовая ложка мёда', day: 'День 1' }
-      ],
-      exercise: [
-        { id: 1, name: 'Подтягивания', description: 'Хват шире плеч, полное движение от растяжения к подтягиванию. Работают мышцы спины и бицепсы', sets: '3', reps: '10', day: 'День 1' },
-        { id: 2, name: 'Отжимания', description: 'На полу или на скамье, спина прямая, локти под углом 45 градусов. Работают грудные мышцы, трицепсы', sets: '3', reps: '15', day: 'День 1' },
-        { id: 3, name: 'Гантели', description: 'Жим гантелей в разные направления. Работают плечи и грудь. Контролируйте движение', sets: '4', reps: '12', day: 'День 1' },
-        { id: 4, name: 'Приседания', description: 'Ноги на ширине плеч, спина прямая, опускайтесь до 90 градусов. Работают ноги и ягодицы', sets: '3', reps: '15', day: 'День 1' },
-        { id: 5, name: 'Скручивания', description: 'Лежа на спине, ноги согнуты. Поднимайте верхнюю часть корпуса. Работают абдоминальные мышцы', sets: '3', reps: '20', day: 'День 1' },
-        { id: 6, name: 'Прогулка', description: '6000 шагов умеренным темпом. Улучшает кардиоваскулярную систему и сжигает калории', sets: '6000 шагов', day: 'День 1' }
-      ]
-    }
-  });
+  const [users, setUsers] = useState([]);
+  const [newUser, setNewUser] = useState({ email: '', name: '', password: '' });
+  const [userPlans, setUserPlans] = useState({});
 
-  const [userTracking, setUserTracking] = useState({ 1: { food: [], exercise: [] } });
+  const [userTracking] = useState({});
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedUser, setSelectedUser] = useState(null);
   const [adminActiveTab, setAdminActiveTab] = useState('users');
@@ -48,9 +47,42 @@ export default function FitnessTracker() {
   const [completedItems, setCompletedItems] = useState({});
   const [activityLog, setActivityLog] = useState([]);
 
+  // ========== SESSION REHYDRATION ==========
+  useEffect(() => {
+    const token = localStorage.getItem('authToken');
+    if (!token) { setLoading(false); return; }
+    apiFetch('/api/auth/me')
+      .then(({ user }) => {
+        setCurrentUser(user);
+        return loadUserData(user);
+      })
+      .catch(() => localStorage.removeItem('authToken'))
+      .finally(() => setLoading(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ========== DATA LOADING ==========
+  async function loadUserData(user) {
+    if (user.role === 'user') {
+      const [plansData, profileData] = await Promise.all([
+        apiFetch(`/api/plans/${user.id}`),
+        apiFetch(`/api/profile/${user.id}`),
+      ]);
+      setUserPlans({ [user.id]: { food: plansData.food, exercise: plansData.exercise } });
+      setUserProfile(profileData.profile);
+    } else if (user.role === 'admin') {
+      const { users: userList } = await apiFetch('/api/users');
+      setUsers(userList);
+    }
+  }
+
+  async function loadUserPlans(user) {
+    if (userPlans[user.id]) return;
+    const { food, exercise } = await apiFetch(`/api/plans/${user.id}`);
+    setUserPlans(prev => ({ ...prev, [user.id]: { food, exercise } }));
+  }
+
   // ========== HELPERS ==========
   const getUserPlans = (userId) => userPlans[userId] || { food: [], exercise: [] };
-
   const userPlansList = getUserPlans(currentUser?.id);
   const completedFoodItems = userPlansList.food.filter(item => completedItems[`food-${item.id}`]);
   const completedExerciseItems = userPlansList.exercise.filter(item => completedItems[`exercise-${item.id}`]);
@@ -84,54 +116,137 @@ export default function FitnessTracker() {
     }
   };
 
-  const saveUserProfile = () => {
-    if (!profileFormData.age || !profileFormData.height || !profileFormData.weight || !profileFormData.waist) {
-      alert('Пожалуйста, заполните все поля'); return;
-    }
-    const updatedProfiles = { ...userProfiles, [currentUser.id]: { age: parseInt(profileFormData.age), height: parseInt(profileFormData.height), weight: parseInt(profileFormData.weight), waist: parseInt(profileFormData.waist) } };
-    setUserProfiles(updatedProfiles);
-    localStorage.setItem('userProfiles', JSON.stringify(updatedProfiles));
-    setProfileFormData({ age: '', height: '', weight: '', waist: '' });
-  };
-
-  const handleLogin = () => {
-    if (loginEmail === 'admin@fittrack.ru' && loginPassword === 'admin123') {
-      setCurrentUser({ id: 'admin', email: loginEmail, role: 'admin' });
+  const handleLogin = async () => {
+    try {
+      const { token, user } = await apiFetch('/api/auth/login', {
+        method: 'POST',
+        body: { email: loginEmail, password: loginPassword },
+      });
+      localStorage.setItem('authToken', token);
+      setCurrentUser(user);
       setLoginEmail(''); setLoginPassword('');
-    } else {
-      const user = users.find(u => u.email === loginEmail && u.password === loginPassword);
-      if (user) { setCurrentUser({ ...user, role: 'user' }); setLoginEmail(''); setLoginPassword(''); }
-      else alert('Неверный email или пароль');
+      await loadUserData(user);
+    } catch (err) {
+      alert(err.message);
     }
   };
 
   const handleLogout = () => {
-    setCurrentUser(null); setSelectedUser(null); setLoginEmail(''); setLoginPassword('');
+    localStorage.removeItem('authToken');
+    setCurrentUser(null); setSelectedUser(null);
+    setLoginEmail(''); setLoginPassword('');
     setAdminActiveTab('users'); setActiveTab('dashboard');
+    setUsers([]); setUserPlans({}); setUserProfile(null);
   };
 
-  const addFoodPlan = () => {
+  const saveUserProfile = async () => {
+    if (!profileFormData.age || !profileFormData.height || !profileFormData.weight || !profileFormData.waist) {
+      alert('Пожалуйста, заполните все поля'); return;
+    }
+    try {
+      const { profile } = await apiFetch(`/api/profile/${currentUser.id}`, {
+        method: 'PUT',
+        body: {
+          age: parseInt(profileFormData.age),
+          height: parseInt(profileFormData.height),
+          weight: parseFloat(profileFormData.weight),
+          waist: parseInt(profileFormData.waist),
+        },
+      });
+      setUserProfile(profile);
+      setProfileFormData({ age: '', height: '', weight: '', waist: '' });
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const addUser = async () => {
+    if (!newUser.email || !newUser.name || !newUser.password) return;
+    try {
+      const { user } = await apiFetch('/api/users', { method: 'POST', body: newUser });
+      setUsers(prev => [...prev, user]);
+      setNewUser({ email: '', name: '', password: '' });
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const removeUser = async (id) => {
+    try {
+      await apiFetch(`/api/users/${id}`, { method: 'DELETE' });
+      setUsers(prev => prev.filter(u => u.id !== id));
+      if (selectedUser?.id === id) { setSelectedUser(null); setAdminActiveTab('users'); }
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const selectUserForPlans = async (user) => {
+    setSelectedUser(user);
+    setAdminActiveTab('plans');
+    await loadUserPlans(user);
+  };
+
+  const addFoodPlan = async () => {
     if (!selectedUser || !newFoodPlan.name || !newFoodPlan.description) return;
-    const up = { ...userPlans };
-    if (!up[selectedUser.id]) up[selectedUser.id] = { food: [], exercise: [] };
-    up[selectedUser.id].food.push({ id: Date.now(), ...newFoodPlan });
-    setUserPlans(up); setNewFoodPlan({ name: '', description: '', day: 'День 1' });
+    try {
+      const item = await apiFetch(`/api/plans/${selectedUser.id}/food`, { method: 'POST', body: newFoodPlan });
+      setUserPlans(prev => ({
+        ...prev,
+        [selectedUser.id]: { ...prev[selectedUser.id], food: [...(prev[selectedUser.id]?.food || []), item] },
+      }));
+      setNewFoodPlan({ name: '', description: '', day: 'День 1' });
+    } catch (err) {
+      alert(err.message);
+    }
   };
 
-  const addExercisePlan = () => {
-    if (!selectedUser || !newExercisePlan.name || !newExercisePlan.description || !newExercisePlan.sets || !newExercisePlan.reps) return;
-    const up = { ...userPlans };
-    if (!up[selectedUser.id]) up[selectedUser.id] = { food: [], exercise: [] };
-    up[selectedUser.id].exercise.push({ id: Date.now(), ...newExercisePlan });
-    setUserPlans(up); setNewExercisePlan({ name: '', description: '', sets: '', reps: '', day: 'День 1' });
+  const addExercisePlan = async () => {
+    if (!selectedUser || !newExercisePlan.name || !newExercisePlan.description) return;
+    try {
+      const item = await apiFetch(`/api/plans/${selectedUser.id}/exercise`, { method: 'POST', body: newExercisePlan });
+      setUserPlans(prev => ({
+        ...prev,
+        [selectedUser.id]: { ...prev[selectedUser.id], exercise: [...(prev[selectedUser.id]?.exercise || []), item] },
+      }));
+      setNewExercisePlan({ name: '', description: '', sets: '', reps: '', day: 'День 1' });
+    } catch (err) {
+      alert(err.message);
+    }
   };
 
-  const removeFoodPlan = (userId, planId) => {
-    const up = { ...userPlans }; up[userId].food = up[userId].food.filter(p => p.id !== planId); setUserPlans(up);
+  const removeFoodPlan = async (userId, planId) => {
+    try {
+      await apiFetch(`/api/plans/food/${planId}`, { method: 'DELETE' });
+      setUserPlans(prev => ({
+        ...prev,
+        [userId]: { ...prev[userId], food: prev[userId].food.filter(p => p.id !== planId) },
+      }));
+    } catch (err) {
+      alert(err.message);
+    }
   };
-  const removeExercisePlan = (userId, planId) => {
-    const up = { ...userPlans }; up[userId].exercise = up[userId].exercise.filter(p => p.id !== planId); setUserPlans(up);
+
+  const removeExercisePlan = async (userId, planId) => {
+    try {
+      await apiFetch(`/api/plans/exercise/${planId}`, { method: 'DELETE' });
+      setUserPlans(prev => ({
+        ...prev,
+        [userId]: { ...prev[userId], exercise: prev[userId].exercise.filter(p => p.id !== planId) },
+      }));
+    } catch (err) {
+      alert(err.message);
+    }
   };
+
+  // ==================== LOADING SCREEN ====================
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#667eea] to-[#764ba2] flex items-center justify-center">
+        <div className="text-white text-xl font-semibold">Загрузка...</div>
+      </div>
+    );
+  }
 
   // ==================== LOGIN SCREEN ====================
   if (!currentUser) {
@@ -187,7 +302,12 @@ export default function FitnessTracker() {
         <div className="bg-white/5 px-5 border-b border-white/10 flex">
           {[{ id: 'users', label: 'Пользователи' }, { id: 'plans', label: 'Планы' }].map(tab => (
             <button key={tab.id}
-              onClick={() => { setAdminActiveTab(tab.id); if (tab.id === 'plans' && !selectedUser && users.length > 0) setSelectedUser(users[0]); }}
+              onClick={async () => {
+                setAdminActiveTab(tab.id);
+                if (tab.id === 'plans' && !selectedUser && users.length > 0) {
+                  await selectUserForPlans(users[0]);
+                }
+              }}
               className={`bg-transparent border-x-0 border-t-0 cursor-pointer py-4 px-5 text-sm transition-colors ${adminActiveTab === tab.id ? 'text-white font-bold border-b-[3px] border-b-white' : 'text-white/60 font-medium border-b-0 hover:text-white/80'}`}>
               {tab.label}
             </button>
@@ -198,24 +318,55 @@ export default function FitnessTracker() {
           {adminActiveTab === 'users' && (
             <div>
               <h2 className="text-white mb-4 text-xl font-semibold">Управление пользователями</h2>
+
+              {/* Create user form */}
+              <div className="bg-white rounded-2xl p-5 mb-5 shadow-lg">
+                <h3 className="mt-0 mb-4 text-base font-semibold">Создать пользователя</h3>
+                <input placeholder="Email" type="email" value={newUser.email}
+                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} className={inputCls} />
+                <input placeholder="Имя" value={newUser.name}
+                  onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} className={inputCls} />
+                <input placeholder="Пароль" type="password" value={newUser.password}
+                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} className={inputCls} />
+                <button onClick={addUser}
+                  className="w-full py-3 bg-gradient-to-br from-[#667eea] to-[#764ba2] text-white border-none rounded-xl font-semibold text-sm cursor-pointer flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+                  <Plus size={18} /> Создать пользователя
+                </button>
+              </div>
+
               <div className="grid gap-3">
                 {users.map(user => (
-                  <div key={user.id} onClick={() => { setSelectedUser(user); setAdminActiveTab('plans'); }}
-                    className="bg-white rounded-xl p-4 shadow-lg cursor-pointer flex justify-between items-center hover:-translate-y-0.5 transition-transform">
-                    <div>
+                  <div key={user.id} className="bg-white rounded-xl p-4 shadow-lg flex justify-between items-center">
+                    <div className="flex-1 cursor-pointer" onClick={() => selectUserForPlans(user)}>
                       <div className="text-base font-semibold">{user.name}</div>
-                      <div className="text-xs text-gray-400 mt-1">{user.email}</div>
+                      <div className="text-xs text-gray-400 mt-1">{user.email} · {user.role}</div>
                     </div>
-                    <div className="bg-[#667eea] text-white rounded-full px-3 py-1.5 text-xs font-semibold">Управлять планом →</div>
+                    <div className="flex gap-2">
+                      <div onClick={() => selectUserForPlans(user)}
+                        className="bg-[#667eea] text-white rounded-full px-3 py-1.5 text-xs font-semibold cursor-pointer hover:opacity-90 transition-opacity">Планы →</div>
+                      {user.id !== currentUser.id && (
+                        <button onClick={() => removeUser(user.id)}
+                          className="bg-red-400 text-white border-none rounded-full px-3 py-1.5 text-xs font-semibold cursor-pointer hover:bg-red-500 transition-colors">
+                          Удалить
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
+                {users.length === 0 && <p className="text-white/60 text-sm text-center py-4">Нет пользователей</p>}
               </div>
             </div>
           )}
 
           {adminActiveTab === 'plans' && selectedUser && (
             <div>
-              <h2 className="text-white mb-4 text-xl font-semibold">План для {selectedUser.name}</h2>
+              <div className="flex items-center gap-3 mb-4">
+                <button onClick={() => setAdminActiveTab('users')}
+                  className="bg-white/20 text-white border-none rounded-lg px-3 py-2 text-sm cursor-pointer hover:bg-white/30 transition-colors">
+                  ← Назад
+                </button>
+                <h2 className="text-white text-xl font-semibold m-0">План для {selectedUser.name}</h2>
+              </div>
 
               <div className="bg-white rounded-2xl p-5 mb-5 shadow-lg">
                 <h3 className="mt-0 mb-4 text-base font-semibold">Добавить план питания</h3>
@@ -260,10 +411,10 @@ export default function FitnessTracker() {
                   onChange={(e) => setNewExercisePlan({ ...newExercisePlan, description: e.target.value })}
                   className={`${inputCls} min-h-[80px] resize-y`} />
                 <div className="grid grid-cols-3 gap-2.5 mb-2.5">
-                  <input placeholder="Подходы" type="number" value={newExercisePlan.sets}
+                  <input placeholder="Подходы" value={newExercisePlan.sets}
                     onChange={(e) => setNewExercisePlan({ ...newExercisePlan, sets: e.target.value })}
                     className="px-3 py-2.5 rounded-xl border-2 border-gray-100 text-sm focus:outline-none focus:border-[#667eea]" />
-                  <input placeholder="Повторения" type="number" value={newExercisePlan.reps}
+                  <input placeholder="Повторения" value={newExercisePlan.reps}
                     onChange={(e) => setNewExercisePlan({ ...newExercisePlan, reps: e.target.value })}
                     className="px-3 py-2.5 rounded-xl border-2 border-gray-100 text-sm focus:outline-none focus:border-[#667eea]" />
                   <select value={newExercisePlan.day} onChange={(e) => setNewExercisePlan({ ...newExercisePlan, day: e.target.value })}
@@ -302,7 +453,6 @@ export default function FitnessTracker() {
   }
 
   // ==================== PROFILE FORM ====================
-  const userProfile = userProfiles[currentUser.id];
   const profileComplete = userProfile && userProfile.age && userProfile.height && userProfile.weight && userProfile.waist;
 
   if (currentUser.role === 'user' && !profileComplete) {

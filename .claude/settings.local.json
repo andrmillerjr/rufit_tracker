@@ -10,7 +10,9 @@
       "Bash(export PATH=\"/opt/homebrew/bin:/usr/bin:/bin:$PATH\")",
       "mcp__Claude_Preview__preview_start",
       "Bash(npm run:*)",
-      "Bash(command -v node)"
+      "Bash(command -v node)",
+      "Bash(/opt/homebrew/bin/npm -v)",
+      "Bash(timeout 5 node index.js)"
     ]
   }
 }

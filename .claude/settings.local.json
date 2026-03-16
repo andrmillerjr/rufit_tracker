@@ -7,7 +7,10 @@
       "Bash(ls /opt/homebrew/bin/node*)",
       "Bash(/opt/homebrew/bin/node -v)",
       "Bash(export PATH=\"/opt/homebrew/bin:$PATH\")",
-      "Bash(export PATH=\"/opt/homebrew/bin:/usr/bin:/bin:$PATH\")"
+      "Bash(export PATH=\"/opt/homebrew/bin:/usr/bin:/bin:$PATH\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npm run:*)",
+      "Bash(command -v node)"
     ]
   }
 }
